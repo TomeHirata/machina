@@ -8,16 +8,18 @@ from pprint import pprint
 import os
 import json
 import argparse
+import pybullet_envs
 """
 Script for taking movie of learned policy.
 """
-from simple_net import PolNet, VNet, PolNetLSTM, VNetLSTM
+from simple_net import PolNet, VNet, PolNetLSTM, VNetLSTM, QNet
 from machina.utils import measure, set_device
 from machina import logger
 from machina.samplers import EpiSampler
 from machina.envs import GymEnv, C2DEnv
 from machina.noise import OUActionNoise
-from machina.pols import GaussianPol, CategoricalPol, MultiCategoricalPol, DeterministicActionNoisePol
+from machina.pols import GaussianPol, CategoricalPol, MultiCategoricalPol, DeterministicActionNoisePol, ArgmaxQfPol
+from machina.vfuncs import CEMDeterministicSAVfunc
 import machina as mc
 """
 Script for taking movie of learned policy.
@@ -48,6 +50,18 @@ parser.add_argument('--num_epis', type=int, default=5,
                     help='Number of episodes of expert trajectories.')
 parser.add_argument('--ddpg', action='store_true',
                     default=False, help='If True, policy for DDPG is used.')
+parser.add_argument('--num_iter', type=int, default=2,
+                    help='Number of iteration of CEM.')
+parser.add_argument('--num_sampling', type=int, default=60,
+                    help='Number of samples sampled from Gaussian in CEM.')
+parser.add_argument('--num_best_sampling', type=int, default=6,
+                    help='Number of best samples used for fitting Gaussian in CEM.')
+parser.add_argument('--eps', type=float, default=0.2,
+                    help='Probability of random action in epsilon-greedy policy.')
+parser.add_argument('--save_memory', action='store_true', default=False,
+                    help='If true, save memory while need more computation time by for-sentence.')
+parser.add_argument('--cem', action='store_true',
+                    default=False, help='If True, policy for cross entropy method is used.')
 args = parser.parse_args()
 
 if not os.path.exists(args.pol_dir):
@@ -79,6 +93,15 @@ if args.ddpg:
     noise = OUActionNoise(action_space.shape)
     pol = DeterministicActionNoisePol(
         observation_space, action_space, pol_net, noise)
+elif args.cem:
+    qf_net = QNet(observation_space, action_space, args.pol_h1, args.pol_h2)
+    qf = CEMDeterministicSAVfunc(
+    observation_space, action_space, qf_net,
+    num_sampling=args.num_sampling,
+    num_best_sampling=args.num_best_sampling,
+    num_iter=args.num_iter,
+    save_memory=args.save_memory)
+    pol = ArgmaxQfPol(env.observation_space, env.action_space, qf, eps=args.eps)
 else:
     if args.rnn:
         pol_net = PolNetLSTM(observation_space, action_space,
